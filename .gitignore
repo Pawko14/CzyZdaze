@@ -1,0 +1,10 @@
+# Pliki ze zmiennymi środowiskowymi (sekrety, klucze API)
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
