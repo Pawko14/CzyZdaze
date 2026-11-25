@@ -2,6 +2,9 @@
 .env
 *.env
 
+# Lokalne pliki cache (stacje, rozkłady)
+*_cache*.json
+
 # Python
 __pycache__/
 *.py[cod]

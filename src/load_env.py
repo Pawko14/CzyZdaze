@@ -1,15 +1,18 @@
 import os
 
+from config import PROJECT_ROOT
 
-env_path = os.path.abspath('.env')
 
+def load_env(filepath=None):
+    """Wczytuje zmienne środowiskowe z pliku .env (pomija puste linie i komentarze #)."""
+    env_file = filepath if filepath is not None else PROJECT_ROOT / ".env"
+    if not os.path.exists(env_file):
+        raise FileNotFoundError(f"Nie znaleziono pliku {env_file}")
 
-def load_env(filepath= env_path):
-    if not os.path.exists(filepath):
-        raise FileNotFoundError("Nie znaleziono .env")
-
-    with open(filepath) as f:
-         for line in f:
-             line = line.strip()
-             key, val = line.split("=", 1)
-             os.environ[key.strip()] = val.strip()
+    with open(env_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            os.environ[key.strip()] = val.strip().strip('"').strip("'")

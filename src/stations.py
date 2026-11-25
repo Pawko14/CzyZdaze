@@ -1,56 +1,66 @@
-import os
-import json
-import requests
+from api_client import api_get
+from cache_utils import read_json_cache, write_json_cache
+from config import PROJECT_ROOT
 
-CACHE_FILE = "stations_cache.json"
+CACHE_FILE = PROJECT_ROOT / "stations_cache.json"
+
 
 def get_stations_dict(headers):
     """Zwraca słownik { 'stationId': 'Nazwa Stacji' }, korzystając z lokalnego cache."""
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+    cached = read_json_cache(CACHE_FILE)
+    if isinstance(cached, dict):
+        return cached
 
     print("Pobieram słownik stacji kolejowych...")
     url = "https://pdp-api.plk-sa.pl/api/v1/dictionaries/stations?pageSize=4000"
-    res = requests.get(url, headers=headers)
-    if res.status_code == 200:
-        data = res.json()
-        stations = {str(s["id"]): s["name"] for s in data.get("stations", [])}
-        with open(CACHE_FILE, "w", encoding="utf-8") as f:
-            json.dump(stations, f, ensure_ascii=False, indent=2)
-        return stations
-    return {}
+    data = api_get(url, headers=headers)
+    if not data:
+        return {}
+
+    stations = {str(s["id"]): s["name"] for s in data.get("stations", [])}
+    write_json_cache(CACHE_FILE, stations, indent=2)
+    return stations
 
 
-def get_route_details(headers, schedule_id, order_id, stations_dict):
+def extract_route_details(route, stations_dict):
     """
-    Pobiera szczegóły trasy: numer handlowy (np. IC 23112) oraz relację (Skąd ➔ Dokąd).
+    Wyciąga numer handlowy (np. IC 23112), relację (Skąd ➔ Dokąd),
+    godzinę startu, flagę przejścia przez północ oraz listę stacji z obiektu trasy.
     """
-    url = f"https://pdp-api.plk-sa.pl/api/v1/schedules/route/{schedule_id}/{order_id}"
-    res = requests.get(url, headers=headers)
-    if res.status_code != 200:
-        return None
-
-    data = res.json()
-    carrier = data.get("carrierCode", "")
-    nat_num = data.get("nationalNumber", "")
+    carrier = route.get("carrierCode") or ""
+    nat_num = str(route.get("nationalNumber") or "")
     full_number = f"{carrier} {nat_num}".strip() if nat_num else carrier
 
-    st_list = data.get("stations", [])
+    st_list = route.get("stations", [])
     if st_list:
         start_name = stations_dict.get(str(st_list[0]["stationId"]), "Nieznana")
         end_name = stations_dict.get(str(st_list[-1]["stationId"]), "Nieznana")
         relation = f"{start_name} ➔ {end_name}"
-        crosses_midnight =  any((s.get("arrivalDay") or 0) >= 1 for s in st_list)
+        departure_time = (st_list[0].get("departureTime") or "")[:5]
+        crosses_midnight = any((s.get("arrivalDay") or 0) >= 1 for s in st_list)
     else:
         relation = "Trasa nieznana"
+        departure_time = ""
         crosses_midnight = False
 
     return {
-        "fullNumber": full_number,      # np. "IC 23112"
-        "nationalNumber": nat_num,        # np. "23112"
+        "fullNumber": full_number,       # np. "IC 23112" lub "PR 49011"
+        "nationalNumber": nat_num,       # np. "23112"
         "relation": relation,            # np. "Hrubieszów Miasto ➔ Kraków Główny"
-        "name": data.get("name", ""),     # np. "HETMAN"
+        "departureTime": departure_time, # np. "06:57"
+        "name": route.get("name") or "", # np. "HETMAN" (lub "" dla Polregio)
         "crosses_midnight": crosses_midnight,
-        "stations": st_list
+        "stations": st_list,
     }
+
+
+def get_route_details(headers, schedule_id, order_id, stations_dict):
+    """
+    Pobiera szczegóły pojedynczej trasy z API: numer handlowy (np. IC 23112) oraz relację (Skąd ➔ Dokąd).
+    """
+    url = f"https://pdp-api.plk-sa.pl/api/v1/schedules/route/{schedule_id}/{order_id}"
+    data = api_get(url, headers=headers)
+    if not data:
+        return None
+
+    return extract_route_details(data, stations_dict)
